@@ -1,0 +1,135 @@
+Option Explicit
+
+' フォーム起動時の初期化
+Private Sub UserForm_Initialize()
+    ' 部屋のプルダウンリスト設定
+    cmbRoom.AddItem "電波暗室1"
+    cmbRoom.AddItem "電波暗室2"
+    cmbRoom.AddItem "電波暗室3"
+    cmbRoom.AddItem "電波暗室4"
+    cmbRoom.AddItem "電波暗室5"
+    cmbRoom.AddItem "電波暗室6"
+    cmbRoom.AddItem "電波暗室7"
+    cmbRoom.AddItem "電波暗室8"
+    cmbRoom.AddItem "電波暗室9"
+    cmbRoom.AddItem "電波暗室10"
+    ' SR1～SR10なども必要に応じて追加してください
+    
+    ' 測定名のプルダウンリスト設定
+    cmbTest.AddItem "ラジオノイズ試験伝導"
+    cmbTest.AddItem "ラジオノイズ試験輻射"
+End Sub
+
+' 部屋または測定名が変更されたときの処理
+Private Sub cmbRoom_Change()
+    Call UpdateEquipmentList
+End Sub
+
+Private Sub cmbTest_Change()
+    Call UpdateEquipmentList
+End Sub
+
+' マスタから紐づく機器一覧をリストボックスに表示する処理
+Private Sub UpdateEquipmentList()
+    Dim wsMaster As Worksheet
+    Dim lastRow As Long, i As Long
+    
+    lstEquip.Clear
+    
+    If cmbRoom.Value = "" Or cmbTest.Value = "" Then Exit Sub
+    
+    Set wsMaster = ThisWorkbook.Sheets("マスタ") ' 上記で作成したマスタシート名を指定
+    lastRow = wsMaster.Cells(wsMaster.Rows.Count, "A").End(xlUp).Row
+    
+    ' マスタシートを検索し、条件に一致するものを追加
+    For i = 2 To lastRow
+        If wsMaster.Cells(i, 1).Value = cmbRoom.Value And wsMaster.Cells(i, 2).Value = cmbTest.Value Then
+            ' リストに名称を追加し、デフォルトでチェックを入れる
+            lstEquip.AddItem wsMaster.Cells(i, 3).Value ' 名称 (C列)
+            lstEquip.Selected(lstEquip.ListCount - 1) = True
+            
+            ' リストボックスの非表示列（2列目以降）にその他の情報を格納しておく
+            lstEquip.ColumnCount = 9
+            lstEquip.ColumnWidths = "100;0;0;0;0;0;0;0;0" ' 名称以外は非表示
+            lstEquip.List(lstEquip.ListCount - 1, 1) = wsMaster.Cells(i, 4).Value ' メーカー
+            lstEquip.List(lstEquip.ListCount - 1, 2) = wsMaster.Cells(i, 5).Value ' 型式
+            lstEquip.List(lstEquip.ListCount - 1, 3) = wsMaster.Cells(i, 6).Value ' 全社連番
+            lstEquip.List(lstEquip.ListCount - 1, 4) = wsMaster.Cells(i, 7).Value ' 管理No.
+            lstEquip.List(lstEquip.ListCount - 1, 5) = wsMaster.Cells(i, 8).Value ' 管理部署
+            lstEquip.List(lstEquip.ListCount - 1, 6) = wsMaster.Cells(i, 9).Value ' 有効期限
+            lstEquip.List(lstEquip.ListCount - 1, 7) = wsMaster.Cells(i, 10).Value ' 使用期間
+        End If
+    Next i
+End Sub
+
+' 決定ボタン押下時の転記処理
+Private Sub btnSubmit_Click()
+    Dim wsReport As Worksheet
+    Dim writeRow As Long
+    Dim i As Long
+    Dim periodStr As String
+    
+    ' 出力先のシート名を指定
+    Set wsReport = ThisWorkbook.Sheets("試験・測定機器一覧")
+    
+    ' 書き込み開始行（CSVの構成から判断し、適宜調整してください）
+    writeRow = 12 ' 例として12行目から書き込み開始
+    
+    For i = 0 To lstEquip.ListCount - 1
+        ' チェックが入っている項目のみ転記
+        If lstEquip.Selected(i) = True Then
+            ' 1行目（名称, メーカー, 全社連番, 管理No., 有効期限）
+            wsReport.Cells(writeRow, 1).Value = lstEquip.List(i, 0) ' 名称
+            wsReport.Cells(writeRow, 2).Value = lstEquip.List(i, 1) ' メーカー
+            wsReport.Cells(writeRow, 3).Value = lstEquip.List(i, 3) ' 全社連番
+            wsReport.Cells(writeRow, 4).Value = lstEquip.List(i, 4) ' 管理No.
+            wsReport.Cells(writeRow, 5).Value = lstEquip.List(i, 6) ' 有効期限
+            
+            ' 2行目（型式, 管理部署, 使用期間）
+            wsReport.Cells(writeRow + 1, 2).Value = lstEquip.List(i, 2) ' 型式
+            wsReport.Cells(writeRow + 1, 4).Value = lstEquip.List(i, 5) ' 管理部署
+            
+            ' 日付フォーマットの適用（年が変わる場合は両方、同年の場合は省略）
+            periodStr = FormatDateString(lstEquip.List(i, 7))
+            wsReport.Cells(writeRow + 1, 5).Value = periodStr ' 使用期間
+            
+            ' フォントをArial体で統一
+            wsReport.Range(wsReport.Cells(writeRow, 1), wsReport.Cells(writeRow + 1, 5)).Font.Name = "Arial"
+            
+            writeRow = writeRow + 2 ' 2行ごとに進める
+        End If
+    Next i
+    
+    MsgBox "転記が完了しました。", vbInformation
+    Unload Me
+End Sub
+
+' 使用期間の日付フォーマット関数
+Private Function FormatDateString(ByVal rawDate As String) As String
+    Dim parts() As String
+    Dim date1 As Date, date2 As Date
+    
+    ' "～" で分割
+    parts = Split(rawDate, "～")
+    
+    If UBound(parts) = 1 Then
+        On Error Resume Next
+        ' 日付型に変換
+        date1 = CDate(Replace(Replace(Replace(parts(0), "年", "/"), "月", "/"), "日", ""))
+        date2 = CDate(Replace(Replace(Replace(parts(1), "年", "/"), "月", "/"), "日", ""))
+        On Error GoTo 0
+        
+        If date1 <> 0 And date2 <> 0 Then
+            ' 年が同じ場合は後の年を省略、異なる場合は両方記載
+            If Year(date1) = Year(date2) Then
+                FormatDateString = Format(date1, "yyyy年m月d日") & "～" & Format(date2, "m月d日")
+            Else
+                FormatDateString = Format(date1, "yyyy年m月d日") & "～" & Format(date2, "yyyy年m月d日")
+            End If
+            Exit Function
+        End If
+    End If
+    
+    ' パースできない場合は元の文字列をそのまま返す
+    FormatDateString = rawDate
+End Function

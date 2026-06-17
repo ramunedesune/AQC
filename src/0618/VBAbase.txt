@@ -1,0 +1,111 @@
+Private Sub UserForm_Initialize()
+    Dim wsMaster As Worksheet
+    Dim tbl As ListObject
+    Dim cell As Range
+    Dim dict As Object
+    
+    ' --- 設定：マスタシート名とテーブル名 ---
+    Set wsMaster = ThisWorkbook.Sheets("master") ' マスタのシート名に合わせて変更してください
+    Set tbl = wsMaster.ListObjects(1)          ' シート内の最初のテーブルを指定
+    
+    ' 部屋名の重複を排除してコンボボックスに登録するための準備
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' テーブルの「部屋名」列から一意の部屋名を取得してコンボボックスへ追加
+    For Each cell In tbl.ListColumns("部屋名").DataBodyRange
+        If cell.Value <> "" And Not dict.Exists(cell.Value) Then
+            dict.Add cell.Value, Nothing
+            Me.ComboBox1.AddItem cell.Value
+        End If
+    Next cell
+    
+    ' リストボックスの初期設定（裏側でマスタの全9列のデータを保持させる）
+    With Me.ListBox1
+        .ColumnCount = 9
+        ' 画面上は「名称」のみが見えるように、他の列の幅を 0 に設定します
+        ' (部屋名:0, 名称:150, メーカ:0, 型式:0, 全社連番:0, 管理No:0, 管理部署:0, 有効期限:0, 使用期間:0)
+        .ColumnWidths = "0;150;0;0;0;0;0;0;0"
+    End With
+End Sub
+
+' 部屋名が選択されたときの処理
+Private Sub ComboBox1_Change()
+    Dim wsMaster As Worksheet
+    Dim tbl As ListObject
+    Dim row As ListRow
+    Dim i As Long
+    
+    Me.ListBox1.Clear
+    If Me.ComboBox1.Value = "" Then Exit Sub
+    
+    Set wsMaster = ThisWorkbook.Sheets("master")
+    Set tbl = wsMaster.ListObjects(1)
+    
+    i = 0
+    ' 選択された部屋名に一致する機器データをリストボックスに抽出
+    For Each row In tbl.ListRows
+        If row.Range.Cells(1, 1).Value = Me.ComboBox1.Value Then
+            ' リストボックスの非表示列も含めてデータを格納
+            Me.ListBox1.AddItem row.Range.Cells(1, 1).Value       ' 0: 部屋名
+            Me.ListBox1.List(i, 1) = row.Range.Cells(1, 2).Value ' 1: 名称
+            Me.ListBox1.List(i, 2) = row.Range.Cells(1, 3).Value ' 2: メーカ
+            Me.ListBox1.List(i, 3) = row.Range.Cells(1, 4).Value ' 3: 型式
+            Me.ListBox1.List(i, 4) = row.Range.Cells(1, 5).Value ' 4: 全社連番
+            Me.ListBox1.List(i, 5) = row.Range.Cells(1, 6).Value ' 5: 管理No.
+            Me.ListBox1.List(i, 6) = row.Range.Cells(1, 7).Value ' 6: 管理部署
+            
+            ' 日付はセルの表示形式（Text）のまま取得することで「年をまたぐ表記」を維持します
+            Me.ListBox1.List(i, 7) = row.Range.Cells(1, 8).Text  ' 7: 有効期限
+            Me.ListBox1.List(i, 8) = row.Range.Cells(1, 9).Text  ' 8: 使用期間
+            
+            ' 初期状態としてすべてにチェックを入れる
+            Me.ListBox1.Selected(i) = True
+            i = i + 1
+        End If
+    Next row
+End Sub
+
+' 決定ボタンが押されたときの処理
+Private Sub CommandButton1_Click()
+    Dim wsReport As Worksheet
+    Dim startCell As Range
+    Dim i As Long, r As Long
+    
+    ' 報告書を書き込むシート（現在アクティブなシート）
+    Set wsReport = ActiveSheet
+    
+    ' --- 設定：報告書シートの書き込み開始セル（名称を入れる最初のセル） ---
+    ' 実際の報告書のレイアウト（例: B10セルから下に書き込むなど）に合わせて変更してください
+    Set startCell = wsReport.Range("B12") 
+    
+    r = 0
+    ' リストボックスをループし、チェックがついている項目だけを書き込む
+    For i = 0 To Me.ListBox1.ListCount - 1
+        If Me.ListBox1.Selected(i) Then
+            
+            ' 報告書シートへ転記（Offsetで右隣のセルへ順番に配置）
+            ' 💡報告書側の列順がマスタと異なる場合は、Offset(r, 列数) の数字を調整してください
+            startCell.Offset(r, 0).Value = Me.ListBox1.List(i, 1) ' 名称
+            startCell.Offset(r, 1).Value = Me.ListBox1.List(i, 2) ' メーカ
+            startCell.Offset(r, 2).Value = Me.ListBox1.List(i, 3) ' 型式
+            startCell.Offset(r, 3).Value = Me.ListBox1.List(i, 4) ' 全社連番
+            startCell.Offset(r, 4).Value = Me.ListBox1.List(i, 5) ' 管理No.
+            startCell.Offset(r, 5).Value = Me.ListBox1.List(i, 6) ' 管理部署
+            startCell.Offset(r, 6).Value = Me.ListBox1.List(i, 7) ' 有効期限
+            startCell.Offset(r, 7).Value = Me.ListBox1.List(i, 8) ' 使用期間
+            
+            ' 入力した行のフォントを「Arial」に統一
+            startCell.Offset(r, 0).Resize(1, 8).Font.Name = "Arial"
+            
+            r = r + 1
+        End If
+    Next i
+    
+    ' 終了処理
+    If r > 0 Then
+        MsgBox r & " 件の機器情報を自動挿入しました。", vbInformation, "完了"
+        Unload Me
+    Else
+        MsgBox "挿入する機器が選択されていません。", vbExclamation, "確認"
+    End If
+End Sub

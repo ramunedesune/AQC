@@ -1,0 +1,28 @@
+' 報告書シートのセルがダブルクリックされたときの処理
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    ' 12行目以降のデータ行が対象
+    If Target.Row >= 12 Then
+        
+        ' ----------------------------------------------------
+        ' ① H列（8列目・有効期限など）が空欄でダブルクリックされた場合
+        ' ----------------------------------------------------
+        If Target.Column = 8 And Target.Value = "" Then
+            Cancel = True ' 通常のセル内編集モードをキャンセル
+            
+            frmCalendar.CalledFromSheet = True
+            frmCalendar.SingleDateMode = True ' ★単一日付モード（1回クリックで確定）をON
+            frmCalendar.Show
+            
+        ' ----------------------------------------------------
+        ' ② I列（9列目・使用期間）が空欄でダブルクリックされた場合
+        ' ----------------------------------------------------
+        ElseIf Target.Column = 9 And Target.Value = "" Then
+            Cancel = True ' 通常のセル内編集モードをキャンセル
+            
+            frmCalendar.CalledFromSheet = True
+            frmCalendar.SingleDateMode = False ' ★期間モード（2回クリックで範囲選択）を指定
+            frmCalendar.Show
+        End If
+        
+    End If
+End Sub

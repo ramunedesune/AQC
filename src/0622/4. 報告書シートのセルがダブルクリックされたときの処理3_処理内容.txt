@@ -1,0 +1,61 @@
+Public Sub SelectDay(d As Integer)
+    Dim ClickedDate As Date
+    ClickedDate = DateSerial(Year(CurrentDate), Month(CurrentDate), d)
+    
+    ' ====================================================
+    ' 【単一日付モード】（H列：1回クリックでその日を入力して終了）
+    ' ====================================================
+    If SingleDateMode Then
+        If CalledFromSheet Then
+            ActiveCell.Value = Format(ClickedDate, "yyyy年m月d日") ' ダブルクリックしたH列に入力
+        End If
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' ====================================================
+    ' 【期間選択モード】（I列またはUserForm：2回クリックで期間入力）
+    ' ====================================================
+    If Not HasStartDate Then
+        ' 【1回目のクリック】開始日を記憶
+        StartDate = ClickedDate
+        HasStartDate = True
+        lblGuide.Caption = "② 終了日を選択してください"
+        lblGuide.ForeColor = RGB(0, 0, 220)
+        DrawCalendar
+    Else
+        ' 【2回目のクリック】終了日を確定
+        Dim EndDate As Date
+        EndDate = ClickedDate
+        
+        ' 日付の前後関係を自動補正
+        If EndDate < StartDate Then
+            Dim tmp As Date
+            tmp = StartDate
+            StartDate = EndDate
+            EndDate = tmp
+        End If
+        
+        Dim periodStr As String
+        Dim startPart As String, endPart As String
+        
+        startPart = Format(StartDate, "yyyy年m月d日")
+        
+        If Year(StartDate) = Year(EndDate) Then
+            endPart = Format(EndDate, "m月d日")
+        Else
+            endPart = Format(EndDate, "yyyy年m月d日")
+        End If
+        
+        periodStr = startPart & "～" & endPart
+        
+        ' 呼び出し元に応じて出力先を分岐
+        If CalledFromSheet Then
+            ActiveCell.Value = periodStr ' ダブルクリックしたシートのセル（I列）に直接入力
+        Else
+            UserForm1.TextBox1.Value = periodStr ' 通常通りUserFormのテキストボックスに入力
+        End If
+        
+        Unload Me
+    End If
+End Sub

@@ -1,0 +1,59 @@
+Sub InsertNewRowToReport()
+    Dim wsReport As Worksheet
+    Dim lastRow As Long
+    Dim targetRange As Range
+    
+    ' 報告書シート（現在アクティブなシート）を指定
+    Set wsReport = ActiveSheet
+    
+    ' B列の最終行を取得（これまでの仕様に合わせてB列を基準にします）
+    lastRow = wsReport.Cells(wsReport.Rows.Count, "B").End(xlUp).Row
+    
+    ' 表がまだ作られていない（12行目未満）場合は処理を中断
+    If lastRow < 12 Then
+        MsgBox "自動挿入された表が見つかりません（12行目以降にデータがありません）。", vbExclamation, "確認"
+        Exit Sub
+    End If
+    
+    ' 画面の更新を一時停止（処理高速化とチラつき防止）
+    Application.ScreenUpdating = False
+    
+    ' ----------------------------------------------------
+    ' ① 最終行の下に1行挿入
+    ' ----------------------------------------------------
+    ' ※行全体を下に押し下げて挿入します（表の下に別の項目があっても崩れません）
+    wsReport.Rows(lastRow + 1).Insert Shift:=xlDown
+    
+    ' 追加した行のB列～I列（8列分）の範囲をセット
+    Set targetRange = wsReport.Range("B" & lastRow + 1 & ":I" & lastRow + 1)
+    
+    ' ----------------------------------------------------
+    ' ② 上の行から書式をコピーして適用
+    ' ----------------------------------------------------
+    ' 最終行の書式のみをコピーして、新しく作った行に貼り付けます
+    ' これにより「文字のサイズ」「セルの色」「配置」などが自動で引き継がれます
+    wsReport.Range("B" & lastRow & ":I" & lastRow).Copy
+    targetRange.PasteSpecial xlPasteFormats
+    Application.CutCopyMode = False ' コピー状態の解除
+    
+    ' ----------------------------------------------------
+    ' ③ ご要望の個別設定（Arial・格子罫線）を確実に適用
+    ' ----------------------------------------------------
+    With targetRange
+        .Font.Name = "Arial" ' フォントをArialに変更（サイズは②で自動引き継ぎ済）
+        
+        ' 格子（罫線）を自動で追加
+        With .Borders
+            .LineStyle = xlContinuous ' 実線
+            .Weight = xlThin          ' 細線
+        End With
+    End With
+    
+    ' 画面の更新を再開
+    Application.ScreenUpdating = True
+    
+    ' 挿入した行の先頭（B列）を自動で選択状態にする（すぐに入力できるようにするため）
+    wsReport.Range("B" & lastRow + 1).Select
+    
+    MsgBox "表の最後に1行追加しました。", vbInformation, "完了"
+End Sub

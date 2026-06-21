@@ -1,0 +1,23 @@
+手順書
+
+
+<VBA導入手順（UIの作成）>
+報告書のExcelファイルを開き、Alt + F11 キーを押してVBAエディタ（VBE）を開きます。
+
+上部メニューの「挿入」＞「ユーザーフォーム」をクリックします（UserForm1が作成されます）
+
+2. UserForm1にイメージコントロールを配置するUserForm1 のデザイン画面を開きます。
+既存のボタン（btnShowCal）を削除します。
+ツールボックスから 「イメージ（Image）」 コントロールを選択し、TextBox1 の横に配置します。
+配置したイメージコントロールのプロパティ（画面左下）を以下のように設定します。
+プロパティ名
+設定値説明(オブジェクト名)imgShowCal
+コードで識別するための名前Picture(クリックして画像を選択)保存したカレンダー画像を選択しますPictureSizeMode 3 - fmPictureSizeModeZoom
+画像を枠のサイズに綺麗に合わせます
+BackStyle0 - fmBackStyleTransparent
+背景を透明にして浮き出させます
+BorderStyle0 - fmBorderStyleNone
+枠線を消してスッキリさせます
+MousePointer99 - fmMousePointerCustom
+アイコンに乗せた時にマウスの形を変えます
+

@@ -1,0 +1,9 @@
+' アイコンを押した瞬間
+Private Sub imgShowCal_MouseDown(ByVal Button As Integer, ByVal Shift As Integer, ByVal X As Single, ByVal Y As Single)
+    Me.imgShowCal.SpecialEffect = fmSpecialEffectSunken ' 凹ませる
+End Sub
+
+' アイコンを離した瞬間
+Private Sub imgShowCal_MouseUp(ByVal Button As Integer, ByVal Shift As Integer, ByVal X As Single, ByVal Y As Single)
+    Me.imgShowCal.SpecialEffect = fmSpecialEffectFlat ' 元に戻す
+End Sub

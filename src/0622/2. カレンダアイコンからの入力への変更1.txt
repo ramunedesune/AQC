@@ -1,0 +1,6 @@
+' カレンダーアイコンをクリックしたときの処理
+Private Sub imgShowCal_Click()
+    ' 前回の修正通り、CalledFromSheetをFalseにして起動
+    frmCalendar.CalledFromSheet = False
+    frmCalendar.Show
+End Sub

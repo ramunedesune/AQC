@@ -1,0 +1,77 @@
+UserForm_Initialize の変更点（上部のみ）
+
+
+
+
+
+
+
+
+Private Sub UserForm_Initialize()
+    Dim wsMaster As Worksheet
+    Dim tbl As ListObject
+    Dim cell As Range
+    Dim dict As Object
+    
+    ' ▼【追加】外部マスタからデータをコピーするための変数
+    Dim masterPath As String
+    Dim wbMaster As Workbook
+    Dim wsMasterSource As Worksheet
+    
+    ' 画面更新と警告を一時停止
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    ' 同じフォルダ内の master.xlsx を特定
+    masterPath = ThisWorkbook.Path & "\master.xlsx"
+    
+    If Dir(masterPath) = "" Then
+        MsgBox "同じフォルダ内に 'master.xlsx' が見つかりません。", vbCritical, "エラー"
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' バックグラウンドで master を開く
+    Set wbMaster = Workbooks.Open(Filename:=masterPath, ReadOnly:=True, UpdateLinks:=False)
+    On Error Resume Next
+    Set wsMasterSource = wbMaster.Sheets("T_常設機器一覧")
+    On Error GoTo 0
+    
+    If wsMasterSource Is Nothing Then
+        MsgBox "master.xlsx 内に 'T_常設機器一覧' シートが見つかりません。", vbCritical, "エラー"
+        wbMaster.Close SaveChanges:=False
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' 自ブックのキャッシュシートへ丸ごとコピーしてすぐ閉じる
+    ' ★シート名を実際の「master_常設機器一覧」に合わせました
+    Set wsMaster = ThisWorkbook.Sheets("master_常設機器一覧")
+    wsMaster.Cells.Clear
+    wsMasterSource.UsedRange.Copy wsMaster.Range("A1")
+    wbMaster.Close SaveChanges:=False
+    
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    ' ▲【追加ここまで】
+    
+    ' --- 以下は元の「テーブル用コード」のままで動きます ---
+    Set tbl = wsMaster.ListObjects(1)          ' コピーされた最初のテーブルを指定
+    
+    ' 部屋名の重複を排除してコンボボックスに登録するための準備
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' テーブルの「部屋名」列から一意の部屋名を取得してコンボボックスへ追加
+    For Each cell In tbl.ListColumns("部屋名").DataBodyRange
+        If cell.Value <> "" And Not dict.Exists(cell.Value) Then
+            dict.Add cell.Value, Nothing
+            Me.ComboBox1.AddItem cell.Value
+        End If
+    Next cell
+    
+    ' リストボックスの初期設定
+    With Me.ListBox1
+        .ColumnCount = 8 
+        .ColumnWidths = "0;150;0;0;0;0;0;0" 
+    End With
+End Sub

@@ -1,0 +1,210 @@
+' ➔ F列（管理No.）が選択されたら、B列（名称）に応じて【未使用】のプルダウンを動的に作成
+Private Sub Worksheet_SelectionChange(ByVal Target As Range)
+    Dim wsCache As Worksheet
+    Dim lastRowCache As Long
+    Dim lastRowSelf As Long
+    Dim cell As Range
+    Dim targetName As String
+    Dim dNoList As String
+    Dim mNo As String
+    Dim tbl As ListObject
+    Dim row As ListRow
+    
+    ' 12行目以降かつF列（管理No.・6列目）の単一セルが選択された場合
+    If Target.Row >= 12 And Target.Column = 6 And Target.Count = 1 Then
+        targetName = Me.Cells(Target.Row, "B").Value ' その行のB列（名称）を取得
+        
+        If targetName = "" Then Exit Sub
+        
+        ' ----------------------------------------------------
+        ' 1. 自シートで【既に他で使われている管理No.】をチェック
+        ' ----------------------------------------------------
+        Dim usedDict As Object
+        Set usedDict = CreateObject("Scripting.Dictionary")
+        
+        lastRowSelf = Me.Cells(Me.Rows.Count, "F").End(xlUp).Row
+        If lastRowSelf >= 12 Then
+            For Each cell In Me.Range("F12:F" & lastRowSelf)
+                If cell.Row <> Target.Row And cell.Value <> "" Then
+                    usedDict(cell.Value) = True
+                End If
+            Next cell
+        End If
+        
+        ' ----------------------------------------------------
+        ' 2. キャッシュマスタから【名称が一致】かつ【未使用】の管理No.を抽出
+        ' ----------------------------------------------------
+        Set wsCache = ThisWorkbook.Sheets("master_外付け負荷等")
+        Set tbl = wsCache.ListObjects(1)
+        
+        Dim listDict As Object
+        Set listDict = CreateObject("Scripting.Dictionary")
+        
+        For Each row In tbl.ListRows
+            ' マスタのB列（名称）が一致するかチェック
+            If row.Range.Cells(1, 2).Value = targetName Then
+                mNo = row.Range.Cells(1, 6).Value ' マスタF列の管理No.
+                
+                ' 重複していないものだけをプルダウン候補に追加
+                If mNo <> "" And Not usedDict.Exists(mNo) Then
+                    listDict(mNo) = True
+                End If
+            End If
+        Next row
+        
+        If listDict.Count = 0 Then
+            Target.Validation.Delete
+            Exit Sub
+        End If
+        
+        ' ----------------------------------------------------
+        ' 3. 抽出した候補を配列に格納してプルダウン適用
+        ' ----------------------------------------------------
+        Dim arr() As Variant
+        arr = listDict.keys
+        
+        dNoList = ""
+        Dim i As Long
+        For i = LBound(arr) To UBound(arr)
+            dNoList = dNoList & arr(i) & ","
+        Next i
+        
+        With Target.Validation
+            .Delete
+            If dNoList <> "" Then
+                dNoList = Left(dNoList, Len(dNoList) - 1)
+                .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+                     Operator:=xlBetween, Formula1:=dNoList
+                .IgnoreBlank = True
+                .InCellDropdown = True
+            End If
+        End With
+    End If
+End Sub
+
+' ➔ F列（管理No.）が変更されたら、管理部署を自動入力し、さらに【名称の塊ごとに小さいもん順に並び替え】
+Private Sub Worksheet_Change(ByVal Target As Range)
+    Dim wsCache As Worksheet
+    Dim tbl As ListObject
+    Dim row As ListRow
+    Dim foundRow As Range
+    Dim lastRowSelf As Long
+    
+    ' 12行目以降かつF列（管理No.・6列目）の単一セルが変更された場合
+    If Target.Row >= 12 And Target.Column = 6 And Target.Count = 1 Then
+        
+        ' 値が消去された場合は、G列（管理部署）も消去して終了
+        If Target.Value = "" Then
+            Application.EnableEvents = False
+            Me.Cells(Target.Row, "G").Value = ""
+            Application.EnableEvents = True
+            Exit Sub
+        End If
+        
+        Set wsCache = ThisWorkbook.Sheets("master_外付け負荷等")
+        Set tbl = wsCache.ListObjects(1)
+        
+        ' キャッシュシートの「F列(管理No.)」から合致する行を検索
+        Set foundRow = Nothing
+        For Each row In tbl.ListRows
+            If row.Range.Cells(1, 6).Value = Target.Value Then
+                Set foundRow = row.Range
+                Exit For
+            End If
+        Next row
+        
+        ' ここから並び替え完了までイベントを一時停止（無限ループ防止）
+        Application.EnableEvents = False
+        
+        ' 1. 管理部署（G列）の自動連動
+        If Not foundRow Is Nothing Then
+            Me.Cells(Target.Row, "G").Value = foundRow.Cells(1, 7).Value
+        Else
+            Me.Cells(Target.Row, "G").Value = "マスタにありません"
+        End If
+        
+        ' 2. 名称ごと(B列)にグループ化し、その中で管理No.(F列)を小さいもん順に並び替え
+        lastRowSelf = Me.Cells(Me.Rows.Count, "B").End(xlUp).Row
+        
+        If lastRowSelf > 12 Then
+            Dim sRange As Range
+            Set sRange = Me.Range("B12:I" & lastRowSelf)
+            
+            Dim dataArr As Variant
+            dataArr = sRange.Value
+            
+            Dim i As Long, j As Long, c As Long
+            Dim temp As Variant
+            Dim numI As Double, numJ As Double
+            Dim strI As String, strJ As String
+            Dim ch As String, k As Long
+            Dim nameI As String, nameJ As String
+            Dim doSwap As Boolean
+            
+            ' 配列内での位置：B列は1番目 (B=1)、F列は5番目 (B=1, C=2, D=3, E=4, F=5)
+            For i = LBound(dataArr, 1) To UBound(dataArr, 1) - 1
+                For j = i + 1 To UBound(dataArr, 1)
+                    
+                    nameI = CStr(dataArr(i, 1))
+                    namej = CStr(dataArr(j, 1))
+                    
+                    doSwap = False
+                    
+                    ' 第一優先：B列（名称）で塊を作る
+                    If nameI = "" And namej <> "" Then
+                        doSwap = True
+                    ElseIf nameI <> "" And namej <> "" Then
+                        If nameI > namej Then
+                            doSwap = True
+                        ElseIf nameI = namej Then
+                            ' 第二優先：名称が同じ塊の中であれば、F列（管理No.）の数字の大きさで比較
+                            
+                            ' 行i の管理No.から数字だけを抽出
+                            strI = ""
+                            For k = 1 To Len(CStr(dataArr(i, 5)))
+                                ch = Mid(CStr(dataArr(i, 5)), k, 1)
+                                If ch Like "[0-9]" Then strI = strI & ch
+                            Next k
+                            If strI = "" Then numI = 0 Else numI = CDbl(strI)
+                            
+                            ' 行j の管理No.から数字だけを抽出
+                            strJ = ""
+                            For k = 1 To Len(CStr(dataArr(j, 5)))
+                                ch = Mid(CStr(dataArr(j, 5)), k, 1)
+                                If ch Like "[0-9]" Then strJ = strJ & ch
+                            Next k
+                            If strJ = "" Then numJ = 0 Else numJ = CDbl(strJ)
+                            
+                            ' 管理No.の空欄チェックと数値比較
+                            If CStr(dataArr(i, 5)) = "" And CStr(dataArr(j, 5)) <> "" Then
+                                doSwap = True
+                            ElseIf CStr(dataArr(i, 5)) <> "" And CStr(dataArr(j, 5)) <> "" Then
+                                If numI > numJ Then
+                                    doSwap = True
+                                ElseIf numI = numJ Then
+                                    If CStr(dataArr(i, 5)) > CStr(dataArr(j, 5)) Then
+                                        doSwap = True
+                                    End If
+                                End If
+                            End If
+                        End If
+                    End If
+                    
+                    ' 条件に合致したら行データを丸ごと入れ替え
+                    If doSwap Then
+                        For c = LBound(dataArr, 2) To UBound(dataArr, 2)
+                            temp = dataArr(i, c)
+                            dataArr(i, c) = dataArr(j, c)
+                            dataArr(j, c) = temp
+                        Next c
+                    End If
+                Next j
+            Next i
+            
+            ' シートに書き戻す
+            sRange.Value = dataArr
+        End If
+        
+        Application.EnableEvents = True
+    End If
+End Sub

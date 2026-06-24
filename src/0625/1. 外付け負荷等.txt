@@ -1,0 +1,259 @@
+Dim currentSetCount As Integer ' 現在表示されているセット数
+
+' ==========================================
+'  ユーザーフォーム初期化（キャッシュ作成）
+' ==========================================
+Private Sub UserForm_Initialize()
+    Dim masterPath As String
+    Dim wbMaster As Workbook
+    Dim wsMasterSource As Worksheet
+    Dim wsMasterCache As Worksheet
+    Dim tbl As ListObject
+    Dim cell As Range
+    Dim dict As Object
+    Dim i As Integer
+    
+    currentSetCount = 1
+    
+    ' 2セット目以降を初期状態では非表示にする
+    For i = 2 To 10
+        Me.Controls("cmbCategory" & i).Visible = False
+        Me.Controls("cmbName" & i).Visible = False
+        Me.Controls("cmbManageNo" & i).Visible = False
+    Next i
+    
+    ' 画面更新と警告を一時停止
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    ' 同じフォルダ内の master.xlsx を特定
+    masterPath = ThisWorkbook.Path & "\master.xlsx"
+    
+    If Dir(masterPath) = "" Then
+        MsgBox "同じフォルダ内に 'master.xlsx' が見つかりません。", vbCritical, "エラー"
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' バックグラウンドで master を開く
+    Set wbMaster = Workbooks.Open(Filename:=masterPath, ReadOnly:=True, UpdateLinks:=False)
+    On Error Resume Next
+    Set wsMasterSource = wbMaster.Sheets("T_外付け負荷等")
+    On Error GoTo 0
+    
+    If wsMasterSource Is Nothing Then
+        MsgBox "master.xlsx 内に 'T_外付け負荷等' シートが見つかりません。", vbCritical, "エラー"
+        wbMaster.Close SaveChanges:=False
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' 自ブックのキャッシュシートへ丸ごとコピー
+    Set wsMasterCache = ThisWorkbook.Sheets("master_外付け負荷等")
+    wsMasterCache.Cells.Clear
+    wsMasterSource.UsedRange.Copy wsMasterCache.Range("A1")
+    wbMaster.Close SaveChanges:=False
+    
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    ' --- プルダウン（分類）の重複を排除してセットする処理 ---
+    Set tbl = wsMasterCache.ListObjects(1)
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' テーブルのA列（分類）から一意のデータを取得
+    For Each cell In tbl.ListColumns(1).DataBodyRange
+        If cell.Value <> "" Then dict(cell.Value) = True
+    Next cell
+    
+    ' すべての分類コンボボックスに選択肢をセット
+    For i = 1 To 10
+        Me.Controls("cmbCategory" & i).List = dict.keys
+    Next i
+End Sub
+
+' ==========================================
+'  連動プルダウンの共通制御ロジック
+' ==========================================
+' 分類が変わったら名称を絞り込む
+Private Sub CategoryChanged(idx As Integer)
+    Dim wsMasterCache As Worksheet: Set wsMasterCache = ThisWorkbook.Sheets("master_外付け負荷等")
+    Dim tbl As ListObject: Set tbl = wsMasterCache.ListObjects(1)
+    Dim row As ListRow
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim targetCategory As String
+    
+    targetCategory = Me.Controls("cmbCategory" & idx).Value
+    Me.Controls("cmbName" & idx).Clear
+    Me.Controls("cmbManageNo" & idx).Clear
+    
+    If targetCategory = "" Then Exit Sub
+    
+    ' 分類が一致する「名称(B列)」を重複排除して抽出
+    For Each row In tbl.ListRows
+        If row.Range.Cells(1, 1).Value = targetCategory Then
+            Dim nameVal As String: nameVal = row.Range.Cells(1, 2).Value
+            If nameVal <> "" Then dict(nameVal) = True
+        End If
+    Next row
+    
+    Me.Controls("cmbName" & idx).List = dict.keys
+End Sub
+
+' 名称が変わったら管理No.を絞り込む
+Private Sub NameChanged(idx As Integer)
+    Dim wsMasterCache As Worksheet: Set wsMasterCache = ThisWorkbook.Sheets("master_外付け負荷等")
+    Dim tbl As ListObject: Set tbl = wsMasterCache.ListObjects(1)
+    Dim row As ListRow
+    Dim targetCategory As String: targetCategory = Me.Controls("cmbCategory" & idx).Value
+    Dim targetName As String: targetName = Me.Controls("cmbName" & idx).Value
+    
+    Me.Controls("cmbManageNo" & idx).Clear
+    
+    If targetCategory = "" Or targetName = "" Then Exit Sub
+    
+    ' 分類と名称が一致する「管理No.(F列)」を抽出
+    For Each row In tbl.ListRows
+        If row.Range.Cells(1, 1).Value = targetCategory And row.Range.Cells(1, 2).Value = targetName Then
+            Dim noVal As String: noVal = row.Range.Cells(1, 6).Value
+            If noVal <> "" Then Me.Controls("cmbManageNo" & idx).AddItem noVal
+        End If
+    Next row
+    
+    ' 候補があれば、自動的に1番目の管理No.を選択状態にする
+    If Me.Controls("cmbManageNo" & idx).ListCount > 0 Then
+        Me.Controls("cmbManageNo" & idx).ListIndex = 0
+    End If
+End Sub
+
+' ==========================================
+'  各コントロールのイベント中継（1〜10セット）
+' ==========================================
+Private Sub cmbCategory1_Change(): CategoryChanged 1: End Sub
+Private Sub cmbName1_Change(): NameChanged 1: End Sub
+Private Sub cmbCategory2_Change(): CategoryChanged 2: End Sub
+Private Sub cmbName2_Change(): NameChanged 2: End Sub
+Private Sub cmbCategory3_Change(): CategoryChanged 3: End Sub
+Private Sub cmbName3_Change(): NameChanged 3: End Sub
+Private Sub cmbCategory4_Change(): CategoryChanged 4: End Sub
+Private Sub cmbName4_Change(): NameChanged 4: End Sub
+Private Sub cmbCategory5_Change(): CategoryChanged 5: End Sub
+Private Sub cmbName5_Change(): NameChanged 5: End Sub
+Private Sub cmbCategory6_Change(): CategoryChanged 6: End Sub
+Private Sub cmbName6_Change(): NameChanged 6: End Sub
+Private Sub cmbCategory7_Change(): CategoryChanged 7: End Sub
+Private Sub cmbName7_Change(): NameChanged 7: End Sub
+Private Sub cmbCategory8_Change(): CategoryChanged 8: End Sub
+Private Sub cmbName8_Change(): NameChanged 8: End Sub
+Private Sub cmbCategory9_Change(): CategoryChanged 9: End Sub
+Private Sub cmbName9_Change(): NameChanged 9: End Sub
+Private Sub cmbCategory10_Change(): CategoryChanged 10: End Sub
+Private Sub cmbName10_Change(): NameChanged 10: End Sub
+
+' ==========================================
+'  「＋ 追加」ボタンの処理
+' ==========================================
+Private Sub btnPlus_Click()
+    If currentSetCount < 10 Then
+        currentSetCount = currentSetCount + 1
+        Me.Controls("cmbCategory" & currentSetCount).Visible = True
+        Me.Controls("cmbName" & currentSetCount).Visible = True
+        Me.Controls("cmbManageNo" & currentSetCount).Visible = True
+        
+        ' 10セット目に達したらプラスボタンを無効化
+        If currentSetCount = 10 Then Me.btnPlus.Enabled = False
+    Else
+        MsgBox "一度に同時追加できるのは10種類までです。", vbInformation, "上限"
+    End If
+End Sub
+
+' ==========================================
+'  「決定」ボタンの処理（シート転記）
+' ==========================================
+Private Sub btnExecute_Click()
+    Dim wsReport As Worksheet: Set wsReport = ThisWorkbook.Sheets("外付け負荷等")
+    Dim wsMasterCache As Worksheet: Set wsMasterCache = ThisWorkbook.Sheets("master_外付け負荷等")
+    Dim tbl As ListObject: Set tbl = wsMasterCache.ListObjects(1)
+    Dim lastRow As Long
+    Dim i As Integer
+    Dim nameVal As String, noVal As String
+    Dim addedCount As Long, startRow As Long
+    Dim foundRow As Range, row As ListRow
+    
+    lastRow = wsReport.Cells(wsReport.Rows.Count, "B").End(xlUp).Row
+    If lastRow < 11 Then lastRow = 11 ' ヘッダーが11行目の場合
+    
+    startRow = lastRow + 1
+    addedCount = 0
+    
+    Application.EnableEvents = False ' シート側イベントを一時停止
+    
+    For i = 1 To currentSetCount
+        nameVal = Me.Controls("cmbName" & i).Value
+        noVal = Me.Controls("cmbManageNo" & i).Value
+        
+        ' 名称と管理Noが正しく選択されている場合のみ転記
+        If nameVal <> "" And noVal <> "" Then
+            lastRow = lastRow + 1
+            addedCount = addedCount + 1
+            
+            ' 選択された管理No.をマスタから探して、紐づく情報を取得
+            Set foundRow = Nothing
+            For Each row In tbl.ListRows
+                If row.Range.Cells(1, 6).Value = noVal Then
+                    Set foundRow = row.Range
+                    Exit For
+                End If
+            Next row
+            
+            ' 表へ挿入（分類列は挿入せず、B列から名称をスタート）
+            wsReport.Cells(lastRow, "B").Value = nameVal ' 名称
+            
+            If Not foundRow Is Nothing Then
+                wsReport.Cells(lastRow, "C").Value = foundRow.Cells(1, 3).Value ' メーカ
+                wsReport.Cells(lastRow, "D").Value = foundRow.Cells(1, 4).Value ' 型式
+                
+                ' 全社連番（数値型に変換して緑三角エラー防止）
+                If IsNumeric(foundRow.Cells(1, 5).Value) And foundRow.Cells(1, 5).Value <> "" Then
+                    wsReport.Cells(lastRow, "E").Value = CDbl(foundRow.Cells(1, 5).Value)
+                Else
+                    wsReport.Cells(lastRow, "E").Value = foundRow.Cells(1, 5).Value
+                End If
+                wsReport.Cells(lastRow, "E").NumberFormatLocal = "0"
+                
+                wsReport.Cells(lastRow, "F").Value = noVal                        ' 管理No.
+                wsReport.Cells(lastRow, "G").Value = foundRow.Cells(1, 7).Value ' 管理部署
+                wsReport.Cells(lastRow, "H").Value = foundRow.Cells(1, 8).Text  ' 有効期限
+            Else
+                ' 万が一マスタに見つからない場合
+                wsReport.Cells(lastRow, "C").Value = "-"
+                wsReport.Cells(lastRow, "D").Value = "-"
+                wsReport.Cells(lastRow, "E").Value = "-"
+                wsReport.Cells(lastRow, "F").Value = noVal
+                wsReport.Cells(lastRow, "G").Value = "マスタ未登録"
+                wsReport.Cells(lastRow, "H").Value = "-"
+            End If
+        End If
+    Next i
+    
+    If addedCount > 0 Then
+        ' 書式（Arial・格子罫線）の一括適用
+        With wsReport.Range("B" & startRow & ":I" & lastRow)
+            .Font.Name = "Arial"
+            With .Borders
+                .LineStyle = xlContinuous
+                .Weight = xlThin
+            End With
+         With .Font
+             .Size = 11 ' 必要に応じてサイズ調整
+         End With
+        End With
+        
+        MsgBox addedCount & " 行の備品を追加しました。", vbInformation, "完了"
+        Unload Me
+    Else
+        MsgBox "名称と管理No.が正しく選択されていません。", vbExclamation, "確認"
+    End If
+    
+    Application.EnableEvents = True
+End Sub

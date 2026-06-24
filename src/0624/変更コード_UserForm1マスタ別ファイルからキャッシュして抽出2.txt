@@ -1,0 +1,7 @@
+ComboBox1_Change の変更点（シート名のみ
+
+
+
+
+' ★キャッシュシート名に合わせて変更するだけ
+    Set wsMaster = ThisWorkbook.Sheets("master_常設機器一覧")

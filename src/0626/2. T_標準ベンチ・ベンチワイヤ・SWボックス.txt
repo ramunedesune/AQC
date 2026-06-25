@@ -1,0 +1,188 @@
+' ➔ G列（管理No.）が選択されたら、C列（名称）に応じて【未使用】のプルダウンを動的に作成
+Private Sub Worksheet_SelectionChange(ByVal Target As Range)
+    Dim wsCache As Worksheet
+    Dim lastRowCache As Long
+    Dim lastRowSelf As Long
+    Dim cell As Range
+    Dim targetName As String
+    Dim dNoList As String
+    Dim mNo As String
+    Dim tbl As ListObject
+    Dim row As ListRow
+    
+    ' 12行目以降かつG列（管理No.・7列目）の単一セルが選択された場合
+    If Target.Row >= 12 And Target.Column = 7 And Target.Count = 1 Then
+        targetName = Me.Cells(Target.Row, "C").Value ' その行のC列（名称）を取得
+        
+        If targetName = "" Then Exit Sub
+        
+        ' 1. 自シートで【既に他で使われている管理No.】をチェック
+        Dim usedDict As Object
+        Set usedDict = CreateObject("Scripting.Dictionary")
+        
+        lastRowSelf = Me.Cells(Me.Rows.Count, "G").End(xlUp).Row
+        If lastRowSelf >= 12 Then
+            For Each cell In Me.Range("G12:G" & lastRowSelf)
+                If cell.Row <> Target.Row And cell.Value <> "" Then
+                    usedDict(cell.Value) = True
+                End If
+            Next cell
+        End If
+        
+        ' 2. キャッシュマスタから【名称が一致】かつ【未使用】の管理No.を抽出
+        Set wsCache = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+        Dim listDict As Object
+        Set listDict = CreateObject("Scripting.Dictionary")
+        
+        ' シート内にテーブル（ListObject）が存在することを確認して処理
+        If wsCache.ListObjects.Count > 0 Then
+            Set tbl = wsCache.ListObjects(1)
+            For Each row In tbl.ListRows
+                If row.Range.Cells(1, 2).Value = targetName Then ' マスタのB列（名称）
+                    mNo = row.Range.Cells(1, 6).Value           ' マスタのF列（管理No.）
+                    If mNo <> "" And Not usedDict.Exists(mNo) Then
+                        listDict(mNo) = True
+                    End If
+                End If
+            Next row
+        End If
+        
+        If listDict.Count = 0 Then
+            Target.Validation.Delete
+            Exit Sub
+        End If
+        
+        ' 3. 動的プルダウン適用
+        Dim arr() As Variant
+        arr = listDict.keys
+        dNoList = ""
+        Dim i As Long
+        For i = LBound(arr) To UBound(arr)
+            dNoList = dNoList & arr(i) & ","
+        Next i
+        
+        With Target.Validation
+            .Delete
+            If dNoList <> "" Then
+                dNoList = Left(dNoList, Len(dNoList) - 1)
+                .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+                     Operator:=xlBetween, Formula1:=dNoList
+                .IgnoreBlank = True
+                .InCellDropdown = True
+            End If
+        End With
+    End If
+End Sub
+
+' ➔ G列（管理No.）が変更されたら、管理部署(H列)を自動入力し、名称の塊ごとに小さい順ソート
+Private Sub Worksheet_Change(ByVal Target As Range)
+    Dim wsCache As Worksheet
+    Dim tbl As ListObject
+    Dim row As ListRow
+    Dim foundRow As Range
+    Dim lastRowSelf As Long
+    
+    ' 12行目以降かつG列（管理No.・7列目）の単一セルが変更された場合
+    If Target.Row >= 12 And Target.Column = 7 And Target.Count = 1 Then
+        
+        If Target.Value = "" Then
+            Application.EnableEvents = False
+            Me.Cells(Target.Row, "H").Value = "" ' H列（管理部署）を消去
+            Application.EnableEvents = True
+            Exit Sub
+        End If
+        
+        Set wsCache = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+        If wsCache.ListObjects.Count > 0 Then
+            Set tbl = wsCache.ListObjects(1)
+            For Each row In tbl.ListRows
+                If row.Range.Cells(1, 6).Value = Target.Value Then
+                    Set foundRow = row.Range
+                    Exit For
+                End If
+            Next row
+        End If
+        
+        Application.EnableEvents = False
+        
+        ' 1. 管理部署（H列）の自動連動
+        If Not foundRow Is Nothing Then
+            Me.Cells(Target.Row, "H").Value = foundRow.Cells(1, 7).Value ' マスタのG列
+        Else
+            Me.Cells(Target.Row, "H").Value = "マスタにありません"
+        End If
+        
+        ' 2. 名称ごと(C列)にグループ化し、その中で管理No.(G列)を小さい順に並び替え
+        lastRowSelf = Me.Cells(Me.Rows.Count, "C").End(xlUp).Row
+        
+        If lastRowSelf > 12 Then
+            Dim sRange As Range
+            Set sRange = Me.Range("C12:I" & lastRowSelf) ' C列〜I列の範囲
+            
+            Dim dataArr As Variant
+            dataArr = sRange.Value
+            
+            Dim i As Long, j As Long, c As Long
+            Dim temp As Variant
+            Dim numI As Double, numJ As Double
+            Dim strI As String, strJ As String
+            Dim ch As String, k As Long
+            Dim nameI As String, nameJ As String
+            Dim doSwap As Boolean
+            
+            ' 配列内での相対位置：C列は1番目(C=1)、G列は5番目(C=1, D=2, E=3, F=4, G=5)
+            For i = LBound(dataArr, 1) To UBound(dataArr, 1) - 1
+                For j = i + 1 To UBound(dataArr, 1)
+                    
+                    nameI = CStr(dataArr(i, 1))
+                    nameJ = CStr(dataArr(j, 1))
+                    doSwap = False
+                    
+                    If nameI = "" And nameJ <> "" Then
+                        doSwap = True
+                    ElseIf nameI <> "" And nameJ <> "" Then
+                        If nameI > nameJ Then
+                            doSwap = True
+                        ElseIf nameI = nameJ Then
+                            ' G列(管理No.)の数値部分を抽出して比較
+                            strI = ""
+                            For k = 1 To Len(CStr(dataArr(i, 5)))
+                                ch = Mid(CStr(dataArr(i, 5)), k, 1)
+                                If ch Like "[0-9]" Then strI = strI & ch
+                            Next k
+                            If strI = "" Then numI = 0 Else numI = CDbl(strI)
+                            
+                            strJ = ""
+                            For k = 1 To Len(CStr(dataArr(j, 5)))
+                                ch = Mid(CStr(dataArr(j, 5)), k, 1)
+                                If ch Like "[0-9]" Then strJ = strJ & ch
+                            Next k
+                            If strJ = "" Then numJ = 0 Else numJ = CDbl(strJ)
+                            
+                            If CStr(dataArr(i, 5)) = "" And CStr(dataArr(j, 5)) <> "" Then
+                                doSwap = True
+                            ElseIf CStr(dataArr(i, 5)) <> "" And CStr(dataArr(j, 5)) <> "" Then
+                                If numI > numJ Then
+                                    doSwap = True
+                                ElseIf numI = numJ Then
+                                    If CStr(dataArr(i, 5)) > CStr(dataArr(j, 5)) Then doSwap = True
+                                End If
+                            End If
+                        End If
+                    End If
+                    
+                    If doSwap Then
+                        For c = LBound(dataArr, 2) To UBound(dataArr, 2)
+                            temp = dataArr(i, c)
+                            dataArr(i, c) = dataArr(j, c)
+                            dataArr(j, c) = temp
+                        Next c
+                    End If
+                Next j
+            Next i
+            sRange.Value = dataArr
+        End If
+        
+        Application.EnableEvents = True
+    End If
+End Sub

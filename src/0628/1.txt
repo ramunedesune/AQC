@@ -1,0 +1,395 @@
+Dim benchSetCount As Integer ' 標準ベンチの現在のセット数 (最大5)
+Dim isUpdating As Boolean    ' ベンチワイヤの相互連動時の無限ループ防止フラグ
+
+' ==========================================
+'  1. ユーザーフォーム初期化（キャッシュ作成）
+' ==========================================
+Private Sub UserForm_Initialize()
+    Dim masterPath As String
+    Dim wbMaster As Workbook
+    Dim wsMasterSource As Worksheet
+    Dim wsMasterCache As Worksheet
+    Dim i As Integer
+    
+    ' --- 標準ベンチの初期表示設定 (2〜5セット目を非表示) ---
+    benchSetCount = 1
+    For i = 2 To 5
+        Me.Controls("cmbBenchCat1_" & i).Visible = False
+        Me.Controls("cmbBenchCat2_" & i).Visible = False
+        Me.Controls("cmbBenchCat3_" & i).Visible = False
+    Next i
+    
+    ' --- 外部マスタのキャッシュ処理 ---
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    masterPath = ThisWorkbook.Path & "\master.xlsx"
+    If Dir(masterPath) = "" Then
+        MsgBox "同じフォルダ内に 'master.xlsx' が見つかりません。", vbCritical, "エラー"
+        Unload Me
+        Exit Sub
+    End If
+    
+    Set wbMaster = Workbooks.Open(Filename:=masterPath, ReadOnly:=True, UpdateLinks:=False)
+    On Error Resume Next
+    Set wsMasterSource = wbMaster.Sheets("T_標準ベンチ・ベンチワイヤ・SWボックス")
+    On Error GoTo 0
+    
+    If wsMasterSource Is Nothing Then
+        MsgBox "master.xlsx 内に 'T_標準ベンチ・ベンチワイヤ・SWボックス' がありません。", vbCritical, "エラー"
+        wbMaster.Close SaveChanges:=False
+        Unload Me
+        Exit Sub
+    End If
+    
+    ' 自ブックのキャッシュシートへ丸ごとコピー
+    Set wsMasterCache = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    wsMasterCache.Cells.Clear
+    wsMasterSource.UsedRange.Copy wsMasterCache.Range("A1")
+    wbMaster.Close SaveChanges:=False
+    
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    ' --- 各タブの初期リストのセット ---
+    InitBenchControls
+    InitWireControls
+    InitSwControls
+End Sub
+
+' ==========================================
+'  2. 各タブの初期リストセット処理
+' ==========================================
+Private Sub InitBenchControls()
+    ' 標準ベンチCat1にマスタA列から「標準ベンチ*ユニット」を抽出してセット
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim r As Long, val As String
+    
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        val = ws.Cells(r, 1).Value
+        If val Like "標準ベンチ*ユニット" Then dict(val) = True
+    Next r
+    cmbBenchCat1_1.List = dict.keys
+End Sub
+
+Private Sub InitWireControls()
+    ' ベンチワイヤCat1に固定4つの選択肢をセット
+    With cmbWireCat1
+        .AddItem "標準ベンチワイヤ"
+        .AddItem "筐体外ベンチワイヤ"
+        .AddItem "標準ベンチ間延長ワイヤ"
+        .AddItem "RFI電源ワイヤ"
+    End With
+End Sub
+
+Private Sub InitSwControls()
+    ' SWボックスCat1を「スイッチボックス」で固定化
+    With cmbSwCat1
+        .Clear
+        .AddItem "スイッチボックス"
+        .ListIndex = 0
+        .Locked = True ' 変更不可にする
+    End With
+    
+    ' 固定されたので、そのままCat2（分類2）のリストをマスタB列から抽出
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim r As Long
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = "スイッチボックス" And ws.Cells(r, 2).Value <> "" Then
+            dict(ws.Cells(r, 2).Value) = True
+        End If
+    Next r
+    cmbSwCat2.List = dict.keys
+End Sub
+
+' ==========================================
+'  3. 【標準ベンチ】タブの連動と追加イベント
+' ==========================================
+Private Sub btnBenchPlus_Click()
+    If benchSetCount >= 5 Then
+        MsgBox "追加できるのは最大5セットまでです。", vbInformation, "上限"
+        Exit Sub
+    End If
+    benchSetCount = benchSetCount + 1
+    
+    ' 次のセットを表示
+    Me.Controls("cmbBenchCat1_" & benchSetCount).Visible = True
+    Me.Controls("cmbBenchCat2_" & benchSetCount).Visible = True
+    Me.Controls("cmbBenchCat3_" & benchSetCount).Visible = True
+    
+    ' 1つ前のセットのCat1リストをコピーして引き継ぐ
+    Me.Controls("cmbBenchCat1_" & benchSetCount).List = cmbBenchCat1_1.List
+End Sub
+
+' 標準ベンチの連動ロジック共通化
+Private Sub BenchCat1_Changed(idx As Integer)
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim c1 As String: c1 = Me.Controls("cmbBenchCat1_" & idx).Value
+    Dim r As Long
+    
+    Me.Controls("cmbBenchCat2_" & idx).Clear
+    Me.Controls("cmbBenchCat3_" & idx).Clear
+    If c1 = "" Then Exit Sub
+    
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = c1 And ws.Cells(r, 2).Value <> "" Then
+            dict(ws.Cells(r, 2).Value) = True
+        End If
+    Next r
+    Me.Controls("cmbBenchCat2_" & idx).List = dict.keys
+End Sub
+
+Private Sub BenchCat2_Changed(idx As Integer)
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim c1 As String: c1 = Me.Controls("cmbBenchCat1_" & idx).Value
+    Dim c2 As String: c2 = Me.Controls("cmbBenchCat2_" & idx).Value
+    Dim r As Long
+    
+    Me.Controls("cmbBenchCat3_" & idx).Clear
+    If c1 = "" Or c2 = "" Then Exit Sub
+    
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = c1 And ws.Cells(r, 2).Value = c2 And ws.Cells(r, 3).Value <> "" Then
+            dict(ws.Cells(r, 3).Value) = True
+        End If
+    Next r
+    Me.Controls("cmbBenchCat3_" & idx).List = dict.keys
+End Sub
+
+' 各イベントの中継
+Private Sub cmbBenchCat1_1_Change(): BenchCat1_Changed 1: End Sub
+Private Sub cmbBenchCat2_1_Change(): BenchCat2_Changed 1: End Sub
+Private Sub cmbBenchCat1_2_Change(): BenchCat1_Changed 2: End Sub
+Private Sub cmbBenchCat2_2_Change(): BenchCat2_Changed 2: End Sub
+Private Sub cmbBenchCat1_3_Change(): BenchCat1_Changed 3: End Sub
+Private Sub cmbBenchCat2_3_Change(): BenchCat2_Changed 3: End Sub
+Private Sub cmbBenchCat1_4_Change(): BenchCat1_Changed 4: End Sub
+Private Sub cmbBenchCat2_4_Change(): BenchCat2_Changed 4: End Sub
+Private Sub cmbBenchCat1_5_Change(): BenchCat1_Changed 5: End Sub
+Private Sub cmbBenchCat2_5_Change(): BenchCat2_Changed 5: End Sub
+
+' ==========================================
+'  4. 【ベンチワイヤ】タブの「相互連動」ロジック
+' ==========================================
+Private Sub cmbWireCat1_Change()
+    If isUpdating Then Exit Sub
+    isUpdating = True
+    
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim c1 As String: c1 = cmbWireCat1.Value
+    Dim dict2 As Object: Set dict2 = CreateObject("Scripting.Dictionary")
+    Dim dict3 As Object: Set dict3 = CreateObject("Scripting.Dictionary")
+    Dim r As Long
+    
+    cmbWireCat2.Clear
+    cmbWireCat3.Clear
+    
+    If c1 <> "" Then
+        For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+            If ws.Cells(r, 1).Value = c1 Then
+                If ws.Cells(r, 2).Value <> "" Then dict2(ws.Cells(r, 2).Value) = True
+                If ws.Cells(r, 3).Value <> "" Then dict3(ws.Cells(r, 3).Value) = True
+            End If
+        Next r
+        cmbWireCat2.List = dict2.keys
+        cmbWireCat3.List = dict3.keys
+    End If
+    isUpdating = False
+End Sub
+
+' 分類2が変更されたら分類3を絞り込む
+Private Sub cmbWireCat2_Change()
+    If isUpdating Then Exit Sub
+    Dim c1 As String: c1 = cmbWireCat1.Value
+    Dim c2 As String: c2 = cmbWireCat2.Value
+    If c1 = "" Or c2 = "" Then Exit Sub
+    
+    isUpdating = True
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict3 As Object: Set dict3 = CreateObject("Scripting.Dictionary")
+    Dim r As Long
+    
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = c1 And ws.Cells(r, 2).Value = c2 Then
+            If ws.Cells(r, 3).Value <> "" Then dict3(ws.Cells(r, 3).Value) = True
+        End If
+    Next r
+    
+    Dim tmp3 As String: tmp3 = cmbWireCat3.Value
+    cmbWireCat3.Clear
+    cmbWireCat3.List = dict3.keys
+    If dict3.Exists(tmp3) Then cmbWireCat3.Value = tmp3
+    isUpdating = False
+End Sub
+
+' 分類3が変更されたら分類2を絞り込む
+Private Sub cmbWireCat3_Change()
+    If isUpdating Then Exit Sub
+    Dim c1 As String: c1 = cmbWireCat1.Value
+    Dim c3 As String: c3 = cmbWireCat3.Value
+    If c1 = "" Or c3 = "" Then Exit Sub
+    
+    isUpdating = True
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict2 As Object: Set dict2 = CreateObject("Scripting.Dictionary")
+    Dim r As Long
+    
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = c1 And ws.Cells(r, 3).Value = c3 Then
+            If ws.Cells(r, 2).Value <> "" Then dict2(ws.Cells(r, 2).Value) = True
+        End If
+    Next r
+    
+    Dim tmp2 As String: tmp2 = cmbWireCat2.Value
+    cmbWireCat2.Clear
+    cmbWireCat2.List = dict2.keys
+    If dict2.Exists(tmp2) Then cmbWireCat2.Value = tmp2
+    isUpdating = False
+End Sub
+
+' ==========================================
+'  5. 【SWボックス】タブの連動（3つ目は管理No.）
+' ==========================================
+Private Sub cmbSwCat2_Change()
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    Dim c2 As String: c2 = cmbSwCat2.Value
+    Dim r As Long
+    
+    cmbSwManageNo.Clear
+    If c2 = "" Then Exit Sub
+    
+    ' A列="スイッチボックス" かつ B列=分類2 に一致する行の H列(管理No.) を抽出
+    For r = 2 To ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        If ws.Cells(r, 1).Value = "スイッチボックス" And ws.Cells(r, 2).Value = c2 Then
+            If ws.Cells(r, 8).Value <> "" Then dict(ws.Cells(r, 8).Value) = True
+        End If
+    Next r
+    cmbSwManageNo.List = dict.keys
+End Sub
+
+' ==========================================
+'  6. 【決定】ボタン処理（C11から1対1スライド転記）
+' ==========================================
+Private Sub btnExecute_Click()
+    Dim wsReport As Worksheet: Set wsReport = ThisWorkbook.Sheets("標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim wsCache As Worksheet: Set wsCache = ThisWorkbook.Sheets("master_標準ベンチ・ベンチワイヤ・SWボックス")
+    Dim lastRow As Long, startRow As Long, addedCount As Long
+    Dim r As Long, i As Integer
+    Dim matchRow As Long
+    
+    ' 転記先のC列（名称）の最終行を取得（11行目がヘッダー、12行目から追記を想定）
+    lastRow = wsReport.Cells(wsReport.Rows.Count, "C").End(xlUp).Row
+    If lastRow < 11 Then lastRow = 11
+    startRow = lastRow + 1
+    addedCount = 0
+    
+    Application.EnableEvents = False
+    
+    ' 現在開いているタブに応じてデータ収集・検索
+    Select Case MultiPage1.Value
+        
+        Case 0 ' --- 標準ベンチ タブ ---
+            For i = 1 To benchSetCount
+                Dim b1 As String: b1 = Me.Controls("cmbBenchCat1_" & i).Value
+                Dim b2 As String: b2 = Me.Controls("cmbBenchCat2_" & i).Value
+                Dim b3 As String: b3 = Me.Controls("cmbBenchCat3_" & i).Value
+                
+                If b1 <> "" And b2 <> "" And b3 <> "" Then
+                    matchRow = 0
+                    For r = 2 To wsCache.Cells(wsCache.Rows.Count, "A").End(xlUp).Row
+                        If wsCache.Cells(r, 1).Value = b1 And wsCache.Cells(r, 2).Value = b2 And wsCache.Cells(r, 3).Value = b3 Then
+                            matchRow = r
+                            Exit For
+                        End If
+                    Next r
+                    
+                    If matchRow > 0 Then
+                        lastRow = lastRow + 1: addedCount = addedCount + 1
+                        WriteRowData wsReport, lastRow, wsCache, matchRow
+                    End If
+                End If
+            Next i
+            
+        Case 1 ' --- ベンチワイヤ タブ ---
+            Dim w1 As String: w1 = cmbWireCat1.Value
+            Dim w2 As String: w2 = cmbWireCat2.Value
+            Dim w3 As String: w3 = cmbWireCat3.Value
+            
+            If w1 <> "" And w2 <> "" And w3 <> "" Then
+                matchRow = 0
+                For r = 2 To wsCache.Cells(wsCache.Rows.Count, "A").End(xlUp).Row
+                    If wsCache.Cells(r, 1).Value = w1 And wsCache.Cells(r, 2).Value = w2 And wsCache.Cells(r, 3).Value = w3 Then
+                        matchRow = r
+                        Exit For
+                    End If
+                Next r
+                
+                If matchRow > 0 Then
+                    lastRow = lastRow + 1: addedCount = addedCount + 1
+                    WriteRowData wsReport, lastRow, wsCache, matchRow
+                End If
+            End If
+            
+        Case 2 ' --- SWボックス タブ ---
+            Dim s1 As String: s1 = cmbSwCat1.Value
+            Dim s2 As String: s2 = cmbSwCat2.Value
+            Dim sMNo As String: sMNo = cmbSwManageNo.Value
+            
+            If s1 <> "" And s2 <> "" And sMNo <> "" Then
+                matchRow = 0
+                For r = 2 To wsCache.Cells(wsCache.Rows.Count, "A").End(xlUp).Row
+                    If wsCache.Cells(r, 1).Value = s1 And wsCache.Cells(r, 2).Value = s2 And wsCache.Cells(r, 8).Value = sMNo Then
+                        matchRow = r
+                        Exit For
+                    End If
+                Next r
+                
+                If matchRow > 0 Then
+                    lastRow = lastRow + 1: addedCount = addedCount + 1
+                    WriteRowData wsReport, lastRow, wsCache, matchRow
+                End If
+            End If
+            
+    End Select
+    
+    ' 書式設定の適用
+    If addedCount > 0 Then
+        With wsReport.Range("C" & startRow & ":I" & lastRow)
+            .Font.Name = "Arial"
+            With .Borders
+                .LineStyle = xlContinuous
+                .Weight = xlThin
+            End With
+        End With
+        MsgBox addedCount & "件 のデータを転記しました。", vbInformation, "完了"
+        Unload Me
+    Else
+        MsgBox "条件に一致するマスタデータが見つからないか、未入力です。", vbExclamation, "確認"
+    End If
+    
+    Application.EnableEvents = True
+End Sub
+
+' マスタのD〜J列から自シートのC〜I列へ平行スライド転記するサブルーチン
+Private Sub WriteRowData(wsRep As Worksheet, targetR As Long, wsCch As Worksheet, sourceR As Long)
+    wsRep.Cells(targetR, "C").Value = wsCch.Cells(sourceR, 4).Value  ' C: 名称 (マスタD)
+    wsRep.Cells(targetR, "D").Value = wsCch.Cells(sourceR, 5).Value  ' D: メーカ (マスタE)
+    wsRep.Cells(targetR, "E").Value = wsCch.Cells(sourceR, 6).Value  ' E: 型式 (マスタF)
+    
+    ' F: 全社連番 (マスタG) 数値変換処理
+    If IsNumeric(wsCch.Cells(sourceR, 7).Value) And wsCch.Cells(sourceR, 7).Value <> "" Then
+        wsRep.Cells(targetR, "F").Value = CDbl(wsCch.Cells(sourceR, 7).Value)
+    Else
+        wsRep.Cells(targetR, "F").Value = wsCch.Cells(sourceR, 7).Value
+    End If
+    wsRep.Cells(targetR, "F").NumberFormatLocal = "0"
+    
+    wsRep.Cells(targetR, "G").Value = wsCch.Cells(sourceR, 8).Value  ' G: 管理No. (マスタH)
+    wsRep.Cells(targetR, "H").Value = wsCch.Cells(sourceR, 9).Value  ' H: 管理部署 (マスタI)
+    wsRep.Cells(targetR, "I").Value = wsCch.Cells(sourceR, 10).Text  ' I: 有効期限 (マスタJ)
+End Sub

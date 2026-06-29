@@ -1,0 +1,141 @@
+Sub 定期メール送信実行()
+    Dim wsMail As Worksheet
+    Dim wsReport As Worksheet
+    Dim fso As Object
+    Dim outApp As Object
+    Dim outMail As Object
+    Dim lastRowMail As Long
+    Dim r As Long
+    Dim filePath As String
+    Dim mailID As String, mailTo As String, mailName As String, status As String
+    Dim templateText As String, mailBody As String
+    Dim tableHTML As String
+    Dim ts As Object
+    
+    ' 1. 「有効期限管理表」の抽出マクロを自動実行して最新状態にする
+    ' ※実際の「進捗管理」マクロの関数名が異なる場合は、ここの名前を書き換えてください
+    On Error Resume Next
+    Call 進捗管理
+    On Error GoTo 0
+    
+    Set wsMail = Sheets("定期自動送信")
+    Set wsReport = Sheets("有効期限管理表")
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set outApp = CreateObject("Outlook.Application")
+    
+    ' 2. 「有効期限管理表」からメール用のHTMLテーブルを生成
+    tableHTML = GetTableHTML(wsReport)
+    
+    ' 3. 「定期自動送信」シートを2行目から順にループ処理
+    lastRowMail = wsMail.Cells(wsMail.Rows.Count, "A").End(xlUp).Row
+    
+    For r = 2 To lastRowMail
+        status = wsMail.Cells(r, "F").Value ' F列：ステータス
+        
+        ' ステータスが「ON」の場合のみメールを作成・送信
+        If UCase(status) = "ON" Then
+            mailTo = wsMail.Cells(r, "B").Value   ' B列：メールアドレス
+            mailName = wsMail.Cells(r, "C").Value ' C列：氏名
+            mailID = wsMail.Cells(r, "D").Value   ' D列：メールID (例: mail001)
+            
+            ' 同じフォルダ内のテキストファイルのパスを指定
+            filePath = ThisWorkbook.Path & "\" & mailID & ".txt"
+            
+            If fso.FileExists(filePath) Then
+                ' テキストファイルを読み込む (UTF-16/標準対応)
+                Set ts = fso.OpenTextFile(filePath, 1, False, -2)
+                templateText = ts.ReadAll
+                ts.Close
+                
+                ' 4. 定型文の置換処理
+                mailBody = templateText
+                mailBody = Replace(mailBody, "[氏名]", mailName)
+                
+                ' メモ帳の改行コードをHTMLの改行（<br>）に変換
+                mailBody = Replace(mailBody, vbCrLf, "<br>")
+                mailBody = Replace(mailBody, vbCr, "<br>")
+                mailBody = Replace(mailBody, vbLf, "<br>")
+                
+                ' 指定箇所にHTMLの表を埋め込む
+                mailBody = Replace(mailBody, "[表]", tableHTML)
+                
+                ' 5. Outlookメールの作成
+                Set outMail = outApp.CreateItem(0)
+                With outMail
+                    .To = mailTo
+                    .Subject = "【自動通知】機器有効期限の更新・進捗管理状況"
+                    ' メールのフォントを読みやすく設定
+                    .HTMLBody = "<div style='font-family:Meiryo,sans-serif; font-size:10.5pt;'>" & mailBody & "</div>"
+                    
+                    ' ⚠️テスト時は「.Save（下書き保存）」にしてOutlookの「下書き」フォルダで確認してください。
+                    ' 問題なければここを「.Send（自動送信）」に書き換えてください。
+                    .Save 
+                End With
+                Set outMail = Nothing
+                
+                ' 6. 配信状況の書き込み (G列に日時＋送信完了)
+                wsMail.Cells(r, "G").Value = Format(Now, "yyyy/mm/dd hh:mm:ss") & "送信完了"
+            Else
+                wsMail.Cells(r, "G").Value = "エラー: テキストファイルが見つかりません"
+            End If
+        End If
+    Next r
+    
+    Set outApp = Nothing
+    Set fso = Nothing
+    
+    ' 最後に配信状況を記録したため、ブックを上書き保存
+    ThisWorkbook.Save
+End Sub
+
+' --- 有効期限管理表から綺麗なHTMLテーブルを作成する補助関数 ---
+Function GetTableHTML(ws As Worksheet) As String
+    Dim startRow As Long: startRow = 15 ' ヘッダーは15行目
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    If lastRow < startRow Then lastRow = startRow
+    
+    Dim html As String
+    ' テーブルの全体スタイル設定
+    html = "<table border='1' style='border-collapse:collapse; border:1px solid #999999; font-family:Meiryo,sans-serif; font-size:10pt;'>"
+    
+    Dim r As Long, c As Long
+    ' ① ヘッダー行 (A15～H15)
+    html = html & "<tr style='background-color:#cfdfec; font-weight:bold; text-align:center;'>"
+    For c = 1 To 8
+        html = html & "<th style='padding:6px; border:1px solid #999999;'>" & ws.Cells(startRow, c).Text & "</th>"
+    Next c
+    html = html & "</tr>"
+    
+    ' ② データ行 (16行目～最終行)
+    If lastRow > startRow Then
+        For r = startRow + 1 To lastRow
+            html = html & "<tr>"
+            For c = 1 To 8
+                Dim cellText As String: cellText = ws.Cells(r, c).Text
+                Dim cellColor As Long, bgColor As String: bgColor = ""
+                
+                ' 画面上のセルの色（条件付き書式の赤・黄など）をそのままHTMLに反映
+                On Error Resume Next
+                cellColor = ws.Cells(r, c).DisplayFormat.Interior.Color
+                If Err.Number = 0 And cellColor <> 16777215 And cellColor <> 0 Then
+                    Dim hexColor As String
+                    hexColor = Right("000000" & Hex(cellColor), 6)
+                    hexColor = Right(hexColor, 2) & Mid(hexColor, 3, 2) & Left(hexColor, 2)
+                    bgColor = " background-color:#" & hexColor & ";"
+                End If
+                On Error GoTo 0
+                
+                ' 列ごとの文字の配置調整 (状況や期限などは中央寄せが見栄えが良い)
+                Dim align As String: align = " text-align:left;"
+                If c = 4 Or c = 6 Or c = 7 Or c = 8 Then align = " text-align:center;"
+                
+                html = html & "<td style='padding:6px; border:1px solid #cccccc;" & bgColor & align & "'>" & cellText & "</td>"
+            Next c
+            html = html & "</tr>"
+        Next r
+    End If
+    
+    html = html & "</table>"
+    GetTableHTML = html
+End Function
